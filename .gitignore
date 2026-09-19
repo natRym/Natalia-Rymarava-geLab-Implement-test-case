@@ -1,0 +1,11 @@
+node_modules/
+.env
+
+playwright-report/
+test-results/
+blob-report/
+screenshots/
+
+*.log
+.DS_Store
+.idea/
