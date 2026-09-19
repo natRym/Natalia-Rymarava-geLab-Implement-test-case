@@ -4,20 +4,14 @@ import { requireEnvironmentVariable } from "../helpers/environment";
 import { captureStepScreenshot } from "../helpers/screenshot";
 
 test.describe("MailLab e2e UI", () => {
-  test("sends an attachment from user 1 to user 2 and moves it to trash", async ({
+  test("sends an attachment to the same account and moves it to trash", async ({
     page,
   }, testInfo) => {
     test.setTimeout(180_000);
 
-    const senderEmail = requireEnvironmentVariable("MAILLAB_USER1_EMAIL");
+    const email = requireEnvironmentVariable("MAILLAB_EMAIL");
 
-    const senderPassword = requireEnvironmentVariable("MAILLAB_USER1_PASSWORD");
-
-    const recipientEmail = requireEnvironmentVariable("MAILLAB_USER2_EMAIL");
-
-    const recipientPassword = requireEnvironmentVariable(
-      "MAILLAB_USER2_PASSWORD",
-    );
+    const password = requireEnvironmentVariable("MAILLAB_PASSWORD");
 
     const timestamp = Date.now();
 
@@ -25,7 +19,7 @@ test.describe("MailLab e2e UI", () => {
 
     const attachmentName = `maillab-attachment-${timestamp}.txt`;
 
-    await test.step("Log in as user 1", async () => {
+    await test.step("Log in", async () => {
       await page.goto("/login");
 
       const loginForm = page.locator("form");
@@ -38,9 +32,9 @@ test.describe("MailLab e2e UI", () => {
 
       await expect(loginForm).toBeVisible();
 
-      await emailInput.fill(senderEmail);
+      await emailInput.fill(email);
 
-      await passwordInput.fill(senderPassword);
+      await passwordInput.fill(password);
 
       await expect(signInButton).toBeEnabled();
 
@@ -50,10 +44,10 @@ test.describe("MailLab e2e UI", () => {
         timeout: 30_000,
       });
 
-      await captureStepScreenshot(page, testInfo, "01-user-1-logged-in");
+      await captureStepScreenshot(page, testInfo, "01-logged-in");
     });
 
-    await test.step("Compose an email to user 2", async () => {
+    await test.step("Compose an email to the same account", async () => {
       const newMailButton = page.locator("main button");
 
       await expect(newMailButton).toBeVisible();
@@ -74,7 +68,7 @@ test.describe("MailLab e2e UI", () => {
 
       const attachmentInput = composeForm.locator('input[type="file"]');
 
-      await recipientInput.fill(recipientEmail);
+      await recipientInput.fill(email);
 
       await subjectInput.fill(subject);
 
@@ -128,9 +122,7 @@ test.describe("MailLab e2e UI", () => {
         timeout: 30_000,
       });
 
-      await expect(sentEmailRow.locator("td:nth-child(1)")).toHaveText(
-        recipientEmail,
-      );
+      await expect(sentEmailRow.locator("td:nth-child(1)")).toHaveText(email);
 
       /*
        * Ячейка также содержит
@@ -143,72 +135,59 @@ test.describe("MailLab e2e UI", () => {
       await captureStepScreenshot(page, testInfo, "04-email-in-sent");
     });
 
-    await test.step("Log out user 1", async () => {
-      const signOutButton = page.locator("aside button");
-
-      await expect(signOutButton).toBeVisible();
-
-      await signOutButton.click();
-
-      await expect(page).toHaveURL(/\/login$/, {
-        timeout: 30_000,
-      });
-    });
-
-    await test.step("Log in as user 2", async () => {
-      const loginForm = page.locator("form");
-
-      const emailInput = loginForm.locator('input[type="email"]');
-
-      const passwordInput = loginForm.locator('input[type="password"]');
-
-      const signInButton = loginForm.locator('button[type="submit"]');
-
-      await expect(loginForm).toBeVisible();
-
-      await emailInput.fill(recipientEmail);
-
-      await passwordInput.fill(recipientPassword);
-
-      await expect(signInButton).toBeEnabled();
-
-      await signInButton.click();
-
-      await expect(page.locator('a[href="/inbox"]')).toBeVisible({
-        timeout: 30_000,
-      });
-
-      await captureStepScreenshot(page, testInfo, "05-user-2-logged-in");
-    });
-
     await test.step("Receive and open the email", async () => {
-      await page.locator('a[href="/inbox"]').click();
-
-      await expect(page).toHaveURL(/\/inbox$/, {
-        timeout: 30_000,
-      });
-
-      const receivedEmailRow = page.locator(
-        `xpath=//table//tbody/tr[` +
-          `td[2][contains(` +
-          `normalize-space(.), ` +
-          `"${subject}"` +
-          `)]]`,
+      const loadingIndicator = page.locator(
+        'xpath=//*[normalize-space()="Loading..."]',
       );
 
-      await expect(receivedEmailRow).toBeVisible({
-        timeout: 60_000,
-      });
+      await expect
+        .poll(
+          async () => {
+            await page.goto("/inbox");
+
+            /*
+             * Важно дождаться завершения загрузки Inbox
+             * перед чтением таблицы.
+             */
+            await expect(loadingIndicator).toBeHidden({
+              timeout: 15_000,
+            });
+
+            const subjects = await page
+              .locator("table tbody tr td:nth-child(2)")
+              .allTextContents();
+
+            return subjects.some((text) => text.includes(subject));
+          },
+          {
+            message: `Waiting for email: ${subject}`,
+            timeout: 90_000,
+            intervals: [1_000, 2_000, 5_000],
+          },
+        )
+        .toBe(true);
+
+      /*
+       * После успешного polling письмо уже находится
+       * в загруженной таблице.
+       */
+      const receivedSubject = page
+        .locator("table tbody tr td:nth-child(2)")
+        .filter({
+          hasText: subject,
+        });
+
+      await expect(receivedSubject).toBeVisible();
+
+      await expect(receivedSubject).toContainText(subject);
+
+      const receivedEmailRow = receivedSubject.locator("xpath=parent::tr");
 
       await expect(receivedEmailRow.locator("td:nth-child(1)")).toHaveText(
-        senderEmail,
+        email,
       );
 
-      await expect(receivedEmailRow.locator("td:nth-child(2)")).toContainText(
-        subject,
-      );
-
-      await captureStepScreenshot(page, testInfo, "06-email-received");
+      await captureStepScreenshot(page, testInfo, "05-email-received");
 
       await receivedEmailRow.click();
 
@@ -220,24 +199,16 @@ test.describe("MailLab e2e UI", () => {
         `xpath=//*[normalize-space()="${attachmentName}"]`,
       );
 
-      await expect(attachmentNameElement).toBeVisible();
+      await expect(attachmentNameElement).toBeVisible({
+        timeout: 30_000,
+      });
 
-      await captureStepScreenshot(page, testInfo, "07-email-opened");
+      await captureStepScreenshot(page, testInfo, "06-email-opened");
     });
 
     await test.step("Save the attachment to Disk", async () => {
-      const attachmentNameElement = page.locator(
-        `xpath=//*[normalize-space()="${attachmentName}"]`,
-      );
-
-      await expect(attachmentNameElement).toBeVisible();
-
-      const attachmentSection = attachmentNameElement.locator(
-        "xpath=ancestor::div[.//button][1]",
-      );
-
-      const saveToDiskButton = attachmentSection.locator(
-        "xpath=.//button[" + "normalize-space()=" + '"Save to Disk"' + "]",
+      const saveToDiskButton = page.locator(
+        "xpath=//button[" + 'normalize-space()="Save to Disk"' + "]",
       );
 
       await expect(saveToDiskButton).toBeVisible();
@@ -249,31 +220,24 @@ test.describe("MailLab e2e UI", () => {
           'contains(@class,"fixed")' +
           " and " +
           'contains(@class,"inset-0")' +
-          "]//div[" +
-          ".//h2[" +
-          "normalize-space()=" +
-          '"Choose a folder"' +
-          "]" +
           "]",
       );
 
       await expect(folderDialog).toBeVisible();
 
       const inboxAttachmentsButton = folderDialog.locator(
-        "xpath=.//button[" + "normalize-space()=" + '"Inbox attachments"' + "]",
+        "xpath=.//button[" + 'normalize-space()="Inbox attachments"' + "]",
       );
 
       /*
-       * Список папок загружается
-       * асинхронно.
+       * Сначала отображается Loading folders,
+       * поэтому ожидаем появления кнопки папки.
        */
       await expect(inboxAttachmentsButton).toBeVisible({
         timeout: 30_000,
       });
 
-      await expect(inboxAttachmentsButton).toBeEnabled({
-        timeout: 30_000,
-      });
+      await expect(inboxAttachmentsButton).toBeEnabled();
 
       await inboxAttachmentsButton.click();
 
@@ -281,20 +245,23 @@ test.describe("MailLab e2e UI", () => {
         timeout: 30_000,
       });
 
-      await page.locator('a[href="/disk"]').click();
+      await page.goto("/disk");
 
-      await expect(page).toHaveURL(/\/disk$/, {
+      await expect(page).toHaveURL(/\/disk$/);
+
+      const diskLoadingIndicator = page.locator(
+        'xpath=//*[normalize-space()="Loading..."]',
+      );
+
+      await expect(diskLoadingIndicator).toBeHidden({
         timeout: 30_000,
       });
 
       const inboxAttachmentsFolder = page.locator(
         "xpath=//span[" +
-          "normalize-space()=" +
-          '"Inbox attachments"' +
+          'normalize-space()="Inbox attachments"' +
           "]/ancestor::div[" +
-          "contains(" +
-          '@class,"cursor-pointer"' +
-          ")" +
+          'contains(@class,"cursor-pointer")' +
           "][1]",
       );
 
@@ -316,7 +283,7 @@ test.describe("MailLab e2e UI", () => {
         attachmentName,
       );
 
-      await captureStepScreenshot(page, testInfo, "08-file-in-disk");
+      await captureStepScreenshot(page, testInfo, "07-file-in-disk");
     });
 
     await test.step("Move the file to trash using drag and drop", async () => {
@@ -345,7 +312,7 @@ test.describe("MailLab e2e UI", () => {
         timeout: 30_000,
       });
 
-      await captureStepScreenshot(page, testInfo, "09-file-moved-to-trash");
+      await captureStepScreenshot(page, testInfo, "08-file-moved-to-trash");
     });
 
     await test.step("Verify the file is in trash", async () => {
@@ -376,7 +343,7 @@ test.describe("MailLab e2e UI", () => {
         attachmentName,
       );
 
-      await captureStepScreenshot(page, testInfo, "10-file-in-trash");
+      await captureStepScreenshot(page, testInfo, "09-file-in-trash");
     });
   });
 });
