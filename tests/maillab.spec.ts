@@ -90,10 +90,6 @@ test.describe("MailLab e2e UI", () => {
 
       const sendButton = composeForm.locator('button[type="submit"]');
 
-      /*
-       * Send disabled пока загружается
-       * attachment.
-       */
       await expect(sendButton).toBeEnabled({
         timeout: 60_000,
       });
@@ -124,10 +120,6 @@ test.describe("MailLab e2e UI", () => {
 
       await expect(sentEmailRow.locator("td:nth-child(1)")).toHaveText(email);
 
-      /*
-       * Ячейка также содержит
-       * attachment badge.
-       */
       await expect(sentEmailRow.locator("td:nth-child(2)")).toContainText(
         subject,
       );
@@ -145,10 +137,6 @@ test.describe("MailLab e2e UI", () => {
           async () => {
             await page.goto("/inbox");
 
-            /*
-             * Важно дождаться завершения загрузки Inbox
-             * перед чтением таблицы.
-             */
             await expect(loadingIndicator).toBeHidden({
               timeout: 15_000,
             });
@@ -167,10 +155,6 @@ test.describe("MailLab e2e UI", () => {
         )
         .toBe(true);
 
-      /*
-       * После успешного polling письмо уже находится
-       * в загруженной таблице.
-       */
       const receivedSubject = page
         .locator("table tbody tr td:nth-child(2)")
         .filter({
@@ -229,10 +213,6 @@ test.describe("MailLab e2e UI", () => {
         "xpath=.//button[" + 'normalize-space()="Inbox attachments"' + "]",
       );
 
-      /*
-       * Сначала отображается Loading folders,
-       * поэтому ожидаем появления кнопки папки.
-       */
       await expect(inboxAttachmentsButton).toBeVisible({
         timeout: 30_000,
       });
