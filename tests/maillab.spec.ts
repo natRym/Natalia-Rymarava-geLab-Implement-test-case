@@ -1,19 +1,18 @@
 import { expect, test } from "@playwright/test";
 
 import { requireEnvironmentVariable } from "../helpers/environment";
-import { captureStepScreenshot } from "../helpers/screenshot";
 
 test.describe("MailLab e2e UI", () => {
   test("sends an attachment to the same account and moves it to trash", async ({
     page,
-  }, testInfo) => {
+  }) => {
     test.setTimeout(180_000);
 
     const email = requireEnvironmentVariable("MAILLAB_EMAIL");
 
     const password = requireEnvironmentVariable("MAILLAB_PASSWORD");
 
-    const timestamp = Date.now();
+    const timestamp = Date.now(); //использовать faiker для генерации фиктивных данных
 
     const subject = `MailLab Playwright ${timestamp}`;
 
@@ -24,13 +23,13 @@ test.describe("MailLab e2e UI", () => {
 
       const loginForm = page.locator("form");
 
-      const emailInput = loginForm.locator('input[type="email"]');
+      const emailInput = loginForm.locator('input[type="email"]'); // использовать playwright inspector, разобраться с локаторами playwright (использовать толькоо их)
 
       const passwordInput = loginForm.locator('input[type="password"]');
 
       const signInButton = loginForm.locator('button[type="submit"]');
 
-      await expect(loginForm).toBeVisible();
+      await expect(loginForm).toBeVisible(); // все expect должны содержать error message
 
       await emailInput.fill(email);
 
@@ -42,9 +41,7 @@ test.describe("MailLab e2e UI", () => {
 
       await expect(page.locator('a[href="/inbox"]')).toBeVisible({
         timeout: 30_000,
-      });
-
-      await captureStepScreenshot(page, testInfo, "01-logged-in");
+      }); // разобраться с таймаутами Playwright + строка 39
     });
 
     await test.step("Compose an email to the same account", async () => {
@@ -81,8 +78,6 @@ test.describe("MailLab e2e UI", () => {
       });
 
       await expect(attachmentInput).toHaveValue(new RegExp(attachmentName));
-
-      await captureStepScreenshot(page, testInfo, "02-email-composed");
     });
 
     await test.step("Send the email", async () => {
@@ -99,8 +94,6 @@ test.describe("MailLab e2e UI", () => {
       await expect(composeForm).not.toBeVisible({
         timeout: 30_000,
       });
-
-      await captureStepScreenshot(page, testInfo, "03-email-sent");
     });
 
     await test.step("Verify the email in Sent", async () => {
@@ -108,7 +101,7 @@ test.describe("MailLab e2e UI", () => {
 
       await expect(page).toHaveURL(/\/sent$/, {
         timeout: 30_000,
-      });
+      }); // привести тест согласно user bahaviour
 
       const sentEmailRow = page.locator("table tbody tr").filter({
         hasText: subject,
@@ -123,8 +116,6 @@ test.describe("MailLab e2e UI", () => {
       await expect(sentEmailRow.locator("td:nth-child(2)")).toContainText(
         subject,
       );
-
-      await captureStepScreenshot(page, testInfo, "04-email-in-sent");
     });
 
     await test.step("Receive and open the email", async () => {
@@ -151,7 +142,7 @@ test.describe("MailLab e2e UI", () => {
             message: `Waiting for email: ${subject}`,
             timeout: 90_000,
             intervals: [1_000, 2_000, 5_000],
-          },
+          }, // 135 - 165 разобраться (сколько будеет работать таймаут, сколько попыток через какое время)
         )
         .toBe(true);
 
@@ -171,12 +162,10 @@ test.describe("MailLab e2e UI", () => {
         email,
       );
 
-      await captureStepScreenshot(page, testInfo, "05-email-received");
-
       await receivedEmailRow.click();
 
       await expect(page).toHaveURL(/\/inbox\/.+/, {
-        timeout: 30_000,
+        timeout: 30_000, //синтаксис регулярных выражений
       });
 
       const attachmentNameElement = page.locator(
@@ -186,8 +175,6 @@ test.describe("MailLab e2e UI", () => {
       await expect(attachmentNameElement).toBeVisible({
         timeout: 30_000,
       });
-
-      await captureStepScreenshot(page, testInfo, "06-email-opened");
     });
 
     await test.step("Save the attachment to Disk", async () => {
@@ -262,8 +249,6 @@ test.describe("MailLab e2e UI", () => {
       await expect(savedFileRow.locator("td:first-child")).toHaveText(
         attachmentName,
       );
-
-      await captureStepScreenshot(page, testInfo, "07-file-in-disk");
     });
 
     await test.step("Move the file to trash using drag and drop", async () => {
@@ -291,8 +276,6 @@ test.describe("MailLab e2e UI", () => {
       await expect(fileRow).not.toBeVisible({
         timeout: 30_000,
       });
-
-      await captureStepScreenshot(page, testInfo, "08-file-moved-to-trash");
     });
 
     await test.step("Verify the file is in trash", async () => {
@@ -322,8 +305,6 @@ test.describe("MailLab e2e UI", () => {
       await expect(fileInTrashRow.locator("td:first-child")).toHaveText(
         attachmentName,
       );
-
-      await captureStepScreenshot(page, testInfo, "09-file-in-trash");
     });
   });
 });
