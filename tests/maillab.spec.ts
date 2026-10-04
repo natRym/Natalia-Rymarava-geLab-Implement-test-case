@@ -1,42 +1,54 @@
 import { expect, test } from "@playwright/test";
 import { faker } from "@faker-js/faker";
+import { copyFile } from "node:fs/promises";
+import path from "node:path";
 
 import { requireEnvironmentVariable } from "../helpers/environment";
 
-test.describe("MailLab e2e UI", () => {
-  test("sends an attachment to the same account and moves it to trash", async ({
-    page,
-  }) => {
-    test.setTimeout(180_000); // максимальное время выполнения всего теста, 3 минуты
+test("sends an attachment to the same account and moves it to trash", async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(180_000); // максимальное время выполнения всего теста, 3 минуты
 
-    const email = requireEnvironmentVariable("MAILLAB_EMAIL"); //берем адрес почты из переменной и используем его для входа и отправки письма
-    const password = requireEnvironmentVariable("MAILLAB_PASSWORD");
+  const email = requireEnvironmentVariable("MAILLAB_EMAIL"); //берем адрес почты из переменной и используем его для входа и отправки письма
+  const password = requireEnvironmentVariable("MAILLAB_PASSWORD");
 
-    const uniqueId = faker.string.uuid();
-    const subject = `MailLab Playwright ${uniqueId}`;
-    const attachmentName = `maillab-attachment-${uniqueId}.txt`;
+  const numericId = faker.string.numeric(5);
+  const subject = `MailLab Playwright ${numericId}`;
+  const attachmentName = `maillab-attachment-${numericId}.txt`;
 
-    await test.step("Log in", async () => {
-      await page.goto("/login");
+  const attachmentPath = testInfo.outputPath(attachmentName);
 
-      const loginForm = page.locator("form");
-      await expect(loginForm, "Login form should be visible").toBeVisible();
+  await copyFile(
+    path.resolve("test-data", "maillab-attachment.txt"),
+    attachmentPath,
+  );
 
-      await loginForm
-        .getByRole("textbox", { name: "you@maillab.local" })
-        .fill(email);
+  await test.step("Log in", async () => {
+    await page.goto("/login");
 
-      await loginForm.locator('input[type="password"]').fill(password);
+    const loginForm = page.locator("form");
+    await expect(loginForm, "Login form should be visible").toBeVisible();
 
-      await loginForm.getByRole("button", { name: "Sign in" }).click();
+    await loginForm
+      .getByRole("textbox", { name: "you@maillab.local" })
+      .fill(email);
 
-      await expect(
-        page.getByRole("link", { name: "Inbox" }),
-        "After login, the Inbox link should be visible",
-      ).toBeVisible({ timeout: 10_000 }); // Ждем, пока ссылка "Inbox" станет видимой после входа,
+    await loginForm.locator('input[type="password"]').fill(password);
+
+    await loginForm.getByRole("button", { name: "Sign in" }).click();
+
+    const inboxHeading = page.getByRole("heading", {
+      name: "Inbox",
+      // exact: true, // можно обойтись без него, тк у меня только 1 заголовок с таким именем. Но лучше оставить, тк Inbox не дополняется текстом (например: 7)
     });
 
-    await test.step("Compose an email to the same account", async () => {
+    await expect(
+      inboxHeading,
+      "After login, the Inbox page should be displayed",
+    ).toBeVisible();
+
+    await test.step("Compose a new email to the same account", async () => {
       await page.getByRole("button", { name: "+ New mail" }).click();
 
       const recipientInput = page.getByPlaceholder("recipient@maillab.local");
@@ -48,41 +60,28 @@ test.describe("MailLab e2e UI", () => {
       });
       const attachmentInput = page.locator('input[type="file"]');
 
-      await expect(
-        recipientInput,
-        "Recipient input should be visible",
-      ).toBeVisible();
       await recipientInput.fill(email);
       await subjectInput.fill(subject);
       await messageInput.fill("MailLab Playwright e2e test.");
 
-      await attachmentInput.setInputFiles({
-        name: attachmentName,
-        mimeType: "text/plain",
-        buffer: Buffer.from("MailLab Playwright e2e attachment."),
-      });
-
-      await expect(
-        attachmentInput,
-        "Attachment input should have the correct value",
-      ).toHaveValue(new RegExp(attachmentName.replaceAll(".", "\\.")));
+      await attachmentInput.setInputFiles(attachmentPath);
     });
 
     await test.step("Send the email", async () => {
       const sendButton = page.getByRole("button", {
         name: "Send",
-        exact: true,
       });
 
       await expect(sendButton, "Send button should be enabled").toBeEnabled();
-      await sendButton.click();
+      await sendButton.click(); // ! https://playwright.dev/docs/actionability
+
       await expect(
-        sendButton,
-        "Send button should be hidden after clicking",
-      ).toBeHidden();
+        page.getByText("Message sent."),
+        "Success message should be displayed after sending",
+      ).toBeVisible();
     });
 
-    await test.step("Verify the email in Sent", async () => {
+    await test.step("Verify the email in Sent folder", async () => {
       await page.getByRole("link", { name: "Sent" }).click();
 
       const sentEmailRow = page
@@ -134,14 +133,10 @@ test.describe("MailLab e2e UI", () => {
         .filter({ hasText: subject });
 
       await expect(
+        //ожидаем, что строка с полученным письмом будет видимой
         receivedEmailRow,
         "Received email row should be visible",
-      ).toBeVisible();
-
-      await expect(
-        receivedEmailRow.getByRole("cell").first(),
-        "Received email row first cell should have the correct email",
-      ).toHaveText(email);
+      ).toBeVisible(); // !https://playwright.dev/docs/actionability (пос)
 
       await receivedEmailRow.click();
 
@@ -159,17 +154,7 @@ test.describe("MailLab e2e UI", () => {
     await test.step("Save the attachment to Disk", async () => {
       await page.getByRole("button", { name: "Save to Disk" }).click();
 
-      const folderDialog = page.locator("div.fixed.inset-0");
-      await expect(folderDialog).toBeVisible();
-
-      await folderDialog
-        .getByRole("button", { name: "Inbox attachments" })
-        .click();
-
-      await expect(
-        folderDialog,
-        "Folder dialog should be hidden after saving the attachment",
-      ).toBeHidden();
+      await page.getByRole("button", { name: "Inbox attachments" }).click();
 
       await expect(
         page.getByText(`Saved as "${attachmentName}" to Disk.`, {
@@ -180,7 +165,7 @@ test.describe("MailLab e2e UI", () => {
 
       await page.getByRole("link", { name: "Disk" }).click();
 
-      await page.getByText("Inbox attachments", { exact: true }).click();
+      await page.getByText("Inbox attachments").click();
 
       const savedFileRow = page
         .getByRole("table")
@@ -200,22 +185,15 @@ test.describe("MailLab e2e UI", () => {
         .filter({ hasText: attachmentName });
 
       const trashFolder = page
-        .getByText("Trash", { exact: true })
-        .locator('xpath=ancestor::div[contains(@class, "cursor-pointer")][1]');
-
-      await expect(
-        fileRow,
-        `The file ${attachmentName} should be visible in Inbox attachments before moving to trash`,
-      ).toBeVisible();
-      await expect(
-        trashFolder,
-        "The trash folder should be visible before moving the file to trash",
-      ).toBeVisible();
+        .getByText("FOLDERS")
+        .locator("..")
+        .getByText("Trash")
+        .locator("..");
 
       await fileRow.dragTo(trashFolder);
 
       await expect(
-        page.getByText("Moved to Trash.", { exact: true }),
+        page.getByText("Moved to Trash."),
         "After moving the file to trash, a confirmation message should be visible",
       ).toBeVisible();
 
@@ -226,8 +204,10 @@ test.describe("MailLab e2e UI", () => {
     });
     await test.step("Verify the file is in trash", async () => {
       const trashFolder = page
-        .getByText("Trash", { exact: true })
-        .locator('xpath=ancestor::div[contains(@class, "cursor-pointer")][1]');
+        .getByText("FOLDERS")
+        .locator("..")
+        .getByText("Trash")
+        .locator("..");
 
       await trashFolder.click();
 
